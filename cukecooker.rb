@@ -119,6 +119,26 @@ $(function() {
     return count;
   }
 
+  function appendToScenario() {
+      replacement = replaceForScenario(buildingStep[0], 1);
+      replacement = currentAction + replacement;
+      if (currentAction == "And ") {
+        replacement = "&nbsp;&nbsp;" + replacement;
+      } else if (lastActionChanged && !firstActionChange) {
+        replacement = "<br/>" + replacement;
+      }
+      str = buildingStep[0];
+      if (str[str.length - 1] == ':') {
+        if (currentAction == "And ") {
+          replacement += '<br/>&nbsp;&nbsp;"""<br/>&nbsp;&nbsp;TODO: text or table goes here&nbsp;&nbsp;<br/>&nbsp;&nbsp;"""';
+        } else {
+          replacement += '<br/>"""<br/>TODO: text or table goes here<br/>"""';
+        }
+      }
+      firstActionChange = false;
+      $scenario.append(replacement + "<br/>");
+  }
+
   $steps = $("#steps");
   $step_builder = $("#step_builder");
   $scenario = $("#scenario");
@@ -184,24 +204,21 @@ $(function() {
     if (ev.keyCode == 13) {
       var step = steps[liIndexes[currentSelection]];
       var str = step[0];
-      var hasColon = str[str.length -1] == ':';
-      var noParams = hasColon ? 3 : 2;
-      if (step.length == noParams) {
-        $scenario.append(step[1] + "<br/>");
-        currentSelection = 0;
-        $steps_li.show();
-        $step_match.val('');
+
+      if (lastAction == currentAction && currentAction != "And ") {
+        currentAction = "And ";
+        lastActionChanged = false;
       } else {
-        if (lastAction == currentAction && currentAction != "And ") {
-          currentAction = "And ";
-          lastActionChanged = false;
-        } else {
-          lastActionChanged = true;
-        }
-        lastAction = currentAction;
+        lastActionChanged = true;
+      }
+      lastAction = currentAction;
 
-        buildingStep = step;
+      buildingStep = step;
 
+      if (countForScenario(step[0]) == 0) {
+        appendToScenario();
+        searchAgain();
+      } else {
         $explanation_step.hide();
         $explanation_step_builder.show();
         $step_match_static.show();
@@ -279,7 +296,10 @@ $(function() {
     if (ev.keyCode == 38 && currentSelection > 0) {
       $($steps_li[liIndexes[currentSelection]]).removeClass("selected");
       currentSelection--;
-      $($steps_li[liIndexes[currentSelection]]).addClass("selected");
+      current = $($steps_li[liIndexes[currentSelection]]);
+      current.addClass("selected");
+      $steps.scrollTop(0);
+      $steps.scrollTop(current.position().top - 90);
       return false;
     }
 
@@ -287,7 +307,10 @@ $(function() {
     if (ev.keyCode == 40 && currentSelection < liIndexes.length - 1) {
       $($steps_li[liIndexes[currentSelection]]).removeClass("selected");
       currentSelection++;
-      $($steps_li[liIndexes[currentSelection]]).addClass("selected");
+      current = $($steps_li[liIndexes[currentSelection]]);
+      current.addClass("selected");
+      $steps.scrollTop(0);
+      $steps.scrollTop(current.position().top - 90);
       return false;
     }
 
@@ -326,24 +349,7 @@ $(function() {
       if ($next.length > 0) {
         $next.focus();
       } else {
-        replacement = replaceForScenario(buildingStep[0], 1);
-        replacement = currentAction + replacement;
-        if (currentAction == "And ") {
-          replacement = "&nbsp;&nbsp;" + replacement;
-        }
-        if (lastActionChanged && !firstActionChange) {
-          replacement = "<br/>" + replacement;
-        }
-        str = buildingStep[0];
-        if (str[str.length - 1] == ':') {
-          if (currentAction == "And ") {
-            replacement += '<br/>&nbsp;&nbsp;"""<br/>&nbsp;&nbsp;TODO: text or table goes here&nbsp;&nbsp;<br/>&nbsp;&nbsp;"""';
-          } else {
-            replacement += '<br/>"""<br/>TODO: text or table goes here<br/>"""';
-          }
-        }
-        firstActionChange = false;
-        $scenario.append(replacement + "<br/>");
+        appendToScenario();
         searchAgain();
       }
       return false;
@@ -361,8 +367,9 @@ $(function() {
 <style>
 body { font-family: "Helvetica Neue",Arial,Helvetica,sans-serif; font-size:85%; }
 .param { font-weight: bold; color: blue;}
-.selected { background-color: #CCE; }
-li { padding: 2px; padding-left: 4px;}
+.selected { background-color: #CCE; padding:4px;}
+ul { list-style-type:none; margin:0px; padding:0px;}
+li { padding: 4px;}
 #logo { font-weight:bold; color: green;}
 #steps, #step_builder { height: 200px; position: relative; overflow: auto; margin: 10px;}
 </style>
