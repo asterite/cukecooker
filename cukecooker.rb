@@ -139,6 +139,23 @@ $(function() {
       $scenario.append(replacement + "<br/>");
   }
 
+  function searchAgain() {
+    currentSelection = 0;
+    $explanation_step.show();
+    $explanation_step_builder.hide();
+    $step_match_static.hide();
+    $step_match.show();
+    $steps.show();
+    $step_builder.hide();
+    $steps_li.show();
+    $steps_li.removeClass("selected");
+    $($steps_li[0]).addClass("selected");
+    $step_match.val("");
+    $step_match.focus();
+    $steps.scrollTop(0);
+  }
+
+
   $steps = $("#steps");
   $step_builder = $("#step_builder");
   $scenario = $("#scenario");
@@ -316,22 +333,6 @@ $(function() {
 
     return true;
   });
-
-  function searchAgain() {
-    currentSelection = 0;
-    $explanation_step.show();
-    $explanation_step_builder.hide();
-    $step_match_static.hide();
-    $step_match.show();
-    $steps.show();
-    $step_builder.hide();
-    $steps_li.show();
-    $steps_li.removeClass("selected");
-    $($steps_li[0]).addClass("selected");
-    $step_match.val("");
-    $step_match.focus();
-    $steps.scrollTop(0);
-  }
 
   $(".complete").live("keyup", function(ev) {
     if (ev.keyCode == 27) {
