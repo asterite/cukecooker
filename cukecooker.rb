@@ -121,7 +121,7 @@ $(function() {
 
   function appendToScenario() {
       replacement = replaceForScenario(buildingStep[0], 1);
-      replacement = currentAction + replacement;
+      replacement = "<strong>" + currentAction + "</strong>" + replacement;
       if (currentAction == "And ") {
         replacement = "&nbsp;&nbsp;" + replacement;
       } else if (lastActionChanged && !firstActionChange) {
@@ -372,6 +372,7 @@ ul { list-style-type:none; margin:0px; padding:0px;}
 li { padding: 4px;}
 #logo { font-weight:bold; color: green;}
 #steps, #step_builder { height: 200px; position: relative; overflow: auto; margin: 10px;}
+#scenario { font-size: 105%; padding-left: 20px;}
 </style>
 </head>
 <body>
