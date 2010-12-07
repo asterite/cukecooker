@@ -25,7 +25,7 @@ OrRegexp = '/\(\?\:.*?\|.*?\)/'
 OptionalRegexp = '/\(\?\:.*?\)\?/'
 CaptureRegepx = '/\(.+?\)/'
 
-File.open("minicuke.html", "w") do |file|
+File.open("cukecooker.html", "w") do |file|
 file.write <<EOF
 <html>
 <head>
@@ -369,7 +369,7 @@ li { padding: 2px; padding-left: 4px;}
 </head>
 <body>
 <div id="logo">
-Cukey
+Cukecooker
 </div>
 <div id="console">
 <h3 id="explanation_step">
@@ -395,5 +395,4 @@ Now fill in the fields for the step (press tab or enter to change between fields
 EOF
 end
 
-#puts "Done! Now open minicuke.html in a browser."
-`google-chrome minicuke.html`
+puts "Done! Now open cukecooker.html in a browser."

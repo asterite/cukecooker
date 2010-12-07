@@ -1,0 +1,20 @@
+== Cukecooker
+
+Cukecooker aids you in writing Cucumber scenarios.
+
+It generates an HTML with your project's step definitions and lets you
+use them to write scenarios in a comfortable way, with autocomplete
+and text inputs for group matches.
+
+=== Usage
+
+In your project root, which should contain a features folder, run this
+in a terminal:
+
+  ruby cukecooker.rb
+
+If everything went well you should see
+
+  Done! Now open cukecooker.html in a browser.
+
+Go ahead, try it!
