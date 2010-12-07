@@ -318,6 +318,7 @@ $(function() {
   });
 
   function searchAgain() {
+    currentSelection = 0;
     $explanation_step.show();
     $explanation_step_builder.hide();
     $step_match_static.hide();
@@ -329,6 +330,7 @@ $(function() {
     $($steps_li[0]).addClass("selected");
     $step_match.val("");
     $step_match.focus();
+    $steps.scrollTop(0);
   }
 
   $(".complete").live("keyup", function(ev) {
