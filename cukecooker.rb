@@ -181,7 +181,7 @@ $(function() {
       return;
     }
 
-    if (ev.keyCode == 13 && text != '') {
+    if (ev.keyCode == 13) {
       var step = steps[liIndexes[currentSelection]];
       var str = step[0];
       var hasColon = str[str.length -1] == ':';
@@ -305,11 +305,10 @@ $(function() {
     $steps_li.removeClass("selected");
     $($steps_li[0]).addClass("selected");
     $step_match.val("");
-    $step_match.keydown();
     $step_match.focus();
   }
 
-  $(".complete").live("keydown", function(ev) {
+  $(".complete").live("keyup", function(ev) {
     if (ev.keyCode == 27) {
       searchAgain();
       return false;
@@ -360,16 +359,17 @@ $(function() {
 });
 </script>
 <style>
+body { font-family: "Helvetica Neue",Arial,Helvetica,sans-serif; font-size:85%; }
 .param { font-weight: bold; color: blue;}
 .selected { background-color: #CCE; }
 li { padding: 2px; padding-left: 4px;}
-#logo { text-align: right; width: 100%; color: green;}
-#steps, #step_builder { height: 200px; position: relative; overflow: scroll; margin: 10px;}
+#logo { font-weight:bold; color: green;}
+#steps, #step_builder { height: 200px; position: relative; overflow: auto; margin: 10px;}
 </style>
 </head>
 <body>
 <div id="logo">
-Cukecooker
+cukecooker :)
 </div>
 <div id="console">
 <h3 id="explanation_step">
