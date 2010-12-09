@@ -6,6 +6,8 @@ It generates an HTML with your project's step definitions and lets you
 use them to write scenarios in a comfortable way, with autocomplete
 and text inputs for group matches.
 
+You can think of it as a Cucumber IDE.
+
 === Usage
 
 In your project root, which should contain a features folder, run this
