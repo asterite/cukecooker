@@ -2,7 +2,35 @@ StepRegex = %r(\s*(?:When|Given|Then).*/\^(.+)\$\/\s*do(\s*\|.*\|)?)
 
 steps = ""
 
-step_files = Dir['features/step_definitions/**/*.rb']
+# Checks that dir exists and is a directory
+def check_dir(dir)
+  unless File.exists?(dir)
+    puts "Error: #{dir} does not exist"
+    exit
+  end
+
+  unless File.directory?(dir)
+    puts "Error: #{dir} is not a directory"
+    exit
+  end
+end
+
+# Get command line directory or default to current
+dir = ARGV[0] || "."
+dir = File.expand_path(dir)
+check_dir dir
+
+# Asume project name is the name of the given directory.
+# If it's src, go one level up
+name = File.basename dir
+if name == 'src'
+  name = File.basename File.dirname(dir)
+end
+
+dir = "#{dir}/features/step_definitions"
+check_dir dir
+
+step_files = Dir["#{dir}/**/*.rb"]
 step_files.each do |step_file|
   lines = File.readlines step_file
   lines.each do |line|
@@ -13,12 +41,19 @@ step_files.each do |step_file|
 
     steps << "," unless steps.empty?
     if match[2]
-      parameters = match[2].strip[1 ... -1].split(',').map!{|x| "'#{x.strip}'"}.join(',') if match[2]
+      parameters = match[2].strip[1 ... -1].split(',').map!{|x| "'#{x.strip.gsub('_', ' ')}'"}.join(',') if match[2]
       steps << "[/^#{regexp}$/, [#{parameters}]]"
     else
       steps << "[/^#{regexp}$/]"
     end
   end
+end
+
+if steps.empty?
+  puts "Error: no step definitions found in #{dir}/features/step_definitions"
+  puts "  Be sure to run cukecooker in a directory which contains a features/step_definitions directory"
+  puts "  or give cukecooker the path to that directory."
+  exit
 end
 
 OrRegexp = '/\(\?\:.*?\|.*?\)/'
@@ -28,10 +63,11 @@ CaptureRegepx = '/\(.+?\)/'
 CaptureWithQuotesRegepx = '/"\(.+?\)"/'
 RegexpRegexp = '/\\\\\//'
 
-File.open("cukecooker.html", "w") do |file|
+File.open("cukecooker-#{name}.html", "w") do |file|
 file.write <<EOF
 <html>
 <head>
+<title>cukecooker - #{name}</title>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.4/jquery.min.js" type="text/javascript"></script>
 <script type="text/javascript">
 // The original step definitions, extracted from the step definition files.
@@ -207,6 +243,7 @@ $(function() {
         }
       }
       firstStepInScenario = false;
+      justBuiltAStep = true;
       $scenario.append(replacement + "<br/>");
   }
 
@@ -356,7 +393,7 @@ $(function() {
       return true;
 
     // These are the arrow keys, home, end, etc. We can ignore them.
-    if (ev.keyCode >= 35 && ev.keyCode <= 40) {
+    if (ev.keyCode >= 33 && ev.keyCode <= 40) {
       return true;
     }
 
@@ -416,11 +453,23 @@ $(function() {
   $stepMatch.keydown(function(ev) {
     if (selectedStepIndex == -1) return;
 
-    // Up or Down
-    if ((ev.keyCode == 38 && selectedStepIndex > 0) ||
-        (ev.keyCode == 40 && selectedStepIndex < liIndices.length - 1)) {
+    // Up, Down, PageUp or PageDown
+    if (ev.keyCode == 38 || ev.keyCode == 40 || ev.keyCode == 33 || ev.keyCode == 34) {
       currentLi().removeClass("selected");
-      selectedStepIndex += ev.keyCode == 38 ? -1 : 1;
+
+      var increment = 0;
+      switch(ev.keyCode) {
+      case 33: increment = -10; break;
+      case 34: increment =  10; break;
+      case 38: increment = -1; break;
+      case 40: increment =  1; break;
+      }
+
+      selectedStepIndex += increment;
+
+      if (selectedStepIndex < 0) selectedStepIndex = 0;
+      if (selectedStepIndex > liIndices.length - 1) selectedStepIndex = liIndices.length - 1;
+
       current = currentLi();
       current.addClass("selected");
       $steps.scrollTop(0);
@@ -466,7 +515,6 @@ $(function() {
       if ($next.length > 0) {
         $next.focus();
       } else {
-        justBuiltAStep = true;
         appendToScenario();
         searchAgain();
       }
@@ -480,6 +528,7 @@ $(function() {
     $scenario.html("");
     searchAgain();
     firstStepInScenario = true;
+    currentAction = "Given ";
   });
 });
 </script>
@@ -490,7 +539,7 @@ ul { list-style-type:none; margin:0px; padding:0px;}
 li { padding: 4px; cursor: pointer;}
 h3 { padding: 0px; margin:0px; }
 #steps, #stepBuilder { height: 40%; position: relative; overflow: auto; border: 1px solid black; background-color: #DFDFEF; margin-top: 20px;}
-#scenarioContainer { height: 40%; margin-top:20px; border: 1px solid black; padding:10px; background-color: #EFEF99; }
+#scenarioContainer { margin-top:20px; border: 1px solid black; padding:10px; background-color: #EFEF99; }
 #scenario { font-size: 105%; padding-left: 20px; margin-top: 10px;}
 #container { min-height: 100%; position: relative; }
 #separator { height: 5%; }
@@ -522,11 +571,11 @@ h3 { padding: 0px; margin:0px; }
 <div id="separator">
 </div>
 <div id="logo">
-cukecooker :)
+#{name} - cukecooker :)
 </div>
 </body>
 </html>
 EOF
 end
 
-puts "Done! Now open cukecooker.html in a browser."
+puts "Done! Now open cukecooker-#{name}.html in a browser."
