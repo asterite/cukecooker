@@ -11,10 +11,14 @@ and text inputs for group matches.
 In your project root, which should contain a features folder, run this
 in a terminal:
 
-  ruby cukecooker.rb
+  cukecooker
+
+Or:
+
+  cukecooker path/to/your/project
 
 If everything went well you should see
 
-  Done! Now open cukecooker.html in a browser.
+  Done! Now open cukecooker-project.html in a browser.
 
 Go ahead, try it!
