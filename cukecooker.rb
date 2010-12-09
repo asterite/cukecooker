@@ -14,7 +14,7 @@ step_files.each do |step_file|
     steps << "," unless steps.empty?
     if match[2]
       parameters = match[2].strip[1 ... -1].split(',').map!{|x| "'#{x.strip}'"}.join(',') if match[2]
-      steps << "[/^#{regexp}$/,#{parameters}]"
+      steps << "[/^#{regexp}$/, [#{parameters}]]"
     else
       steps << "[/^#{regexp}$/]"
     end
@@ -22,8 +22,11 @@ step_files.each do |step_file|
 end
 
 OrRegexp = '/\(\?\:.*?\|.*?\)/'
-OptionalRegexp = '/\(\?\:.*?\)\?/'
+OptionalRegexp = '/.\?/'
+OptionalWithParenRegexp = '/\(\?\:.*?\)\?/'
 CaptureRegepx = '/\(.+?\)/'
+CaptureWithQuotesRegepx = '/"\(.+?\)"/'
+RegexpRegexp = '/\\\\\//'
 
 File.open("cukecooker.html", "w") do |file|
 file.write <<EOF
@@ -31,237 +34,345 @@ file.write <<EOF
 <head>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.4/jquery.min.js" type="text/javascript"></script>
 <script type="text/javascript">
-var originalSteps = [#{steps}];
-var steps = [];
-var currentSelection = 0;
-var liIndexes = [];
-var lastText = '';
-var buildingStep;
-var currentAction = "Given ";
-var firstActionChange = true;
-var lastAction = '';
-var lastActionChanged = false;
+// The original step definitions, extracted from the step definition files.
+// Each element in the array is an array whose first element is the regular expression
+// and the next element is an (optional) array containing the parameters given in the do block.
+originalSteps = [#{steps}];
+
+// The expanded steps (splitted by ors or optional regexps).
+// Each element in the array is a hash with the following properties:
+//   regexp: the regular expression to deal with
+//   params: an array of parameters that were given in the do block
+//   regexpReplaced: the regular expression with groups replaced with params
+steps = [];
+
+// The index of the selected step.
+selectedStepIndex = 0;
+
+// The indices of the li's that are shown.
+liIndices = [];
+
+// The selected step once the user pressed enter.
+buildingStep = null;
+
+// The current action entered by the user
+currentAction = "Given ";
+
+// The last action entered by the user
+lastAction = '';
+
+// Is the current action different than the last action?
+lastActionChanged = false;
+
+// The text that was in #stepMatch before a keyup event was fired
+lastStepMatchText = '';
+
+// Is the user creating the first step in the scenario?
+firstStepInScenario = true;
+
+allLiIndices = [];
+
+// HACK: keyup event if fired twice... why? :'-(
+justBuiltAStep = false;
+
 $(function() {
+  $steps = $("#steps");
+  $stepBuilder = $("#stepBuilder");
+  $scenario = $("#scenario");
+  $stepMatch = $("#stepMatch");
+  $stepMatch_static = $("#stepMatch_static");
+  $explanationStep = $("#explanationStep");
+  $explanationStepBuilder = $("#explanationStepBuilder");
+
+  // Push all elements into array
   function pushAll(array, elements) {
-    for(var i = 0; i < elements.length; i++) {
+    for(var i = 0; i < elements.length; i++)
       array.push(elements[i]);
-    }
   }
 
-  function splitRegexp(step) {
+  // Split the regexp into their expansions.
+  // For example:
+  //   "(?:a|b) c"        --> ["a c", "b c"]
+  //   "(?:a )?b"         --> ["a b", "b"]
+  //   "(?:a )?(?:b|c) d" --> ["a b d", "a c d", "b d", "c d"]
+  function splitRegexp(regexp) {
     var results = [];
 
     // Find an OR expression
-    var orMatch = step.match(#{OrRegexp});
-    if (orMatch) {
-      var orMatch = orMatch[0];
-      var idx = step.indexOf(orMatch);
+    var match = regexp.match(#{OrRegexp});
+    if (match) {
+      match = match[0];
+      var idx = regexp.indexOf(match);
       // Remove (?: ... )
-      var orMatch = orMatch.substring(3, orMatch.length - 1);
-      var orPieces = orMatch.split("\|");
-      for(var i = 0; i < orPieces.length; i++) {
-        var newRegexp = step.substring(0, idx) + orPieces[i] + step.substring(idx + orMatch.length + 4);
+      match = match.substring(3, match.length - 1);
+      var pieces = match.split("\|");
+      for(var i = 0; i < pieces.length; i++) {
+        var before = regexp.substring(0, idx);
+        var after = regexp.substring(idx + match.length + 4);
+        var newRegexp = before + pieces[i] + after;
         pushAll(results, splitRegexp(newRegexp));
       }
       return results;
     }
 
-    // Find optional expression
-    var optMatch = step.match(#{OptionalRegexp});
-    if (optMatch) {
-      var optMatch = optMatch[0];
-      var idx = step.indexOf(optMatch);
-      var regexpWithout = step.substring(0, idx) + step.substring(idx + optMatch.length);
-      var regexpWith = step.substring(0, idx) + optMatch.substring(3, optMatch.length - 2) + step.substring(idx + optMatch.length);
+    // Find optional expression with parenthesis
+    match = regexp.match(#{OptionalWithParenRegexp});
+    if (match) {
+      match = match[0];
+      var idx = regexp.indexOf(match);
+      var before = regexp.substring(0, idx);
+      var after = regexp.substring(idx + match.length);
+      // This is without the surrounding (?: ... )?
+      var middle = match.substring(3, match.length - 2);
+      var regexpWithout = before + after;
+      var regexpWith = before + middle + after;
       pushAll(results, splitRegexp(regexpWithout));
       pushAll(results, splitRegexp(regexpWith));
       return results;
     }
 
-    return [step];
-  }
-
-  function replaceMatches(step, str, paramIdx, before, after) {
-    var m = str.match(#{CaptureRegepx});
-    if (m) {
-      m = m[0];
-      var idx = str.indexOf(m);
-      str = str.substring(0, idx) + before + step[paramIdx] + after + str.substring(idx + m.length);
-      return replaceMatches(step, str, paramIdx + 1, before, after);
+    // Find optional expression without parenthesis
+    match = regexp.match(#{OptionalRegexp});
+    if (match) {
+      match = match[0];
+      var idx = regexp.indexOf(match);
+      var before = regexp.substring(0, idx);
+      var after = regexp.substring(idx + match.length);
+      // This is without the ?
+      var middle = match.substring(0, match.length - 1);
+      var regexpWithout = before + after;
+      var regexpWith = before + middle + after;
+      pushAll(results, splitRegexp(regexpWithout));
+      pushAll(results, splitRegexp(regexpWith));
+      return results;
     }
-    return str;
-  }
 
-  function replaceForScenario(str, paramIdx) {
-    var m = str.match(#{CaptureRegepx});
-    if (m) {
-      m = m[0];
-      var idx = str.indexOf(m);
-      str = str.substring(0, idx) + $("#p" + paramIdx).val() + str.substring(idx + m.length);
-      return replaceForScenario(str, paramIdx + 1);
+    // Replace \/ with /
+    while(regexp.indexOf("\\\\/") >= 0) {
+      regexp = regexp.replace(#{RegexpRegexp}, "/");
     }
-    return str;
+
+    return [regexp];
   }
 
-  function countForScenario(str) {
-    count = 0;
+  // Processes each group in the step regexp with the given callback. The callback
+  // receives the index of the matched group and must return a replacement
+  // for it.
+  function processGroups(step, callback) {
+    paramIdx = 0;
+    regexp = step.regexp;
     while(true) {
-      var m = str.match(#{CaptureRegepx});
-      if (m) {
-        m = m[0];
-        var idx = str.indexOf(m);
-        str = str.substring(0, idx) + str.substring(idx + m.length);
-      } else {
-        break;
-      }
-      count++;
+      m = regexp.match(#{CaptureRegepx});
+      if (!m) break;
+
+      m = m[0];
+      idx = regexp.indexOf(m);
+      regexp = regexp.substring(0, idx) + callback(paramIdx) + regexp.substring(idx + m.length);
+      paramIdx++;
     }
-    return count;
+    return regexp;
   }
 
+  // Transforms 'foo "(...)" bar' into 'foo (...) bar'
+  function removeQuotedGroups(step) {
+    regexp = step.regexp;
+    while(true) {
+      m = regexp.match(#{CaptureWithQuotesRegepx});
+      if (!m) break;
+
+      m = m[0];
+      idx = regexp.indexOf(m);
+      regexp = regexp.substring(0, idx) + m.substring(1, m.length -1) + regexp.substring(idx + m.length);
+    }
+    return regexp;
+  }
+
+  // Appends the step just built to the scenario div.
   function appendToScenario() {
-      replacement = replaceForScenario(buildingStep[0], 1);
+      replacement = processGroups(buildingStep, function(idx) {
+        return '<span class="param">' + $("#p" + idx).val() + '</span>';
+      });
       replacement = "<strong>" + currentAction + "</strong>" + replacement;
       if (currentAction == "And ") {
         replacement = "&nbsp;&nbsp;" + replacement;
-      } else if (lastActionChanged && !firstActionChange) {
+      } else if (lastActionChanged && !firstStepInScenario) {
         replacement = "<br/>" + replacement;
       }
-      str = buildingStep[0];
-      if (str[str.length - 1] == ':') {
+      regexp = buildingStep.regexp;
+      if (regexp[regexp.length - 1] == ':') {
         if (currentAction == "And ") {
           replacement += '<br/>&nbsp;&nbsp;"""<br/>&nbsp;&nbsp;TODO: text or table goes here&nbsp;&nbsp;<br/>&nbsp;&nbsp;"""';
         } else {
           replacement += '<br/>"""<br/>TODO: text or table goes here<br/>"""';
         }
       }
-      firstActionChange = false;
+      firstStepInScenario = false;
       $scenario.append(replacement + "<br/>");
   }
 
+  // Prepares the page for building steps (input texts for parameters)
+  function prepareBuildStep() {
+    buildingStep = steps[currentLiIndex()];
+
+    // Set the current action and see if it changed from the last one
+    if (lastAction == currentAction && currentAction != "And ") {
+      currentAction = "And ";
+      lastActionChanged = false;
+    } else {
+      lastActionChanged = true;
+    }
+    lastAction = currentAction;
+
+    groupsCount = 0;
+    processGroups(buildingStep, function(idx) {
+      groupsCount++;
+      return '';
+    });
+
+    if (groupsCount == 0) {
+      appendToScenario();
+      searchAgain();
+    } else {
+      $explanationStep.hide();
+      $explanationStepBuilder.show();
+      $stepMatch.attr('readonly', 'readonly');
+      $stepMatch.val(currentAction + buildingStep.regexpReplaced);
+      $steps.hide();
+      $stepBuilder.show();
+
+      regexpWithoutQuotes = removeQuotedGroups(buildingStep);
+      originalRegexp = buildingStep.regexp;
+      buildingStep.regexp = regexpWithoutQuotes;
+
+      html = '<table><tr><td><nobr><strong>' + currentAction + "</strong>";
+      html += processGroups(buildingStep, function(idx) {
+        return '</nobr></td><td width="100"><input type="text" id="p' + idx + '" class="complete"></td><td><nobr>';
+      });
+      html += '</td></tr><tr align="center"><td>';
+      for(var i = 0; i < groupsCount; i++) {
+        html += '</td><td class="param">' + buildingStep.params[i] + "</td><td>";
+      }
+      html += "</td></tr></table>";
+      $stepBuilder.html(html);
+
+      $("#p0").focus();
+
+      buildingStep.regexp = originalRegexp;
+    }
+  }
+
+  // Resets everything except the scenario div to search a new step.
   function searchAgain() {
-    currentSelection = 0;
-    $explanation_step.show();
-    $explanation_step_builder.hide();
-    $step_match_static.hide();
-    $step_match.show();
+    selectedStepIndex = 0;
+    liIndices = allLiIndices;
+    $explanationStep.show();
+    $explanationStepBuilder.hide();
+    $stepMatch.attr('readonly', '');
     $steps.show();
-    $step_builder.hide();
-    $steps_li.show();
-    $steps_li.removeClass("selected");
-    $($steps_li[0]).addClass("selected");
-    $step_match.val("");
-    $step_match.focus();
+    $stepBuilder.hide();
+    $stepsLi.show();
+    $stepsLi.removeClass("selected");
+    stepLi(0).addClass("selected");
+    $stepMatch.val("");
+    $stepMatch.focus();
     $steps.scrollTop(0);
   }
 
+  // Returns the index of the currently selected <li>
+  function currentLiIndex() {
+    return liIndices[selectedStepIndex];
+  }
 
-  $steps = $("#steps");
-  $step_builder = $("#step_builder");
-  $scenario = $("#scenario");
+  // Returns the selected <li> as a jQuery object
+  function currentLi() {
+    return $($stepsLi[currentLiIndex()]);
+  }
 
-  var liIndex = 0;
-  // Process original steps
+  // Returns a step <li> as a jQuery object
+  function stepLi(idx) {
+    return $($stepsLi[idx]);
+  }
+
+  // Split original steps and create the steps array
   for(var i = 0; i < originalSteps.length; i++) {
-    var o = originalSteps[i];
-    var step = o[0].toString();
+    originalStep = originalSteps[i];
+    step = originalStep[0].toString();
     // Remove /^ and $/
-    var s = step.substring(2, step.length - 2);
-    var splits = splitRegexp(s);
+    s = step.substring(2, step.length - 2);
+    splits = splitRegexp(s);
     for(var j = 0; j < splits.length; j++) {
-      var split = splits[j];
-      var newStep = [];
-      newStep.push(split);
-      for(var k = 1; k < o.length; k++) {
-        newStep.push(o[k]);
-      }
+      split = splits[j];
 
-      var replacement = replaceMatches(newStep, newStep[0], 1, '', '');
-      newStep.push(replacement);
+      newStep = {}
+      newStep.regexp = split
+      newStep.params = originalStep.length == 1 ? [] : originalStep[1]
+      newStep.regexpReplaced = processGroups(newStep, function(idx) {
+        return newStep.params[idx];
+      });
+
       steps.push(newStep);
 
-      liIndexes.push(liIndex);
-      liIndex++;
+      allLiIndices.push(allLiIndices.length);
     }
   }
 
+  liIndices = allLiIndices;
+
+  // Sort steps according to regexps, alphabetically
   steps.sort(function(a, b) {
-    var x = a[0].toLowerCase();
-    var y = b[0].toLowerCase();
+    x = a.regexp.toLowerCase();
+    y = b.regexp.toLowerCase();
     return x < y ? -1 : (x > y ? 1 : 0);
   });
 
+  // Write the steps in the <li>s
   for(var i = 0; i < steps.length; i++) {
-    var step = steps[i];
-    var replacement = replaceMatches(step, step[0], 1, '<span class="param">', '</span>');
+    step = steps[i];
+    replacement = processGroups(step, function(idx) {
+      return '<span class="param">' + step.params[idx] + '</span>';
+    });
     $steps.append("<li>" + replacement + "</li>");
   }
 
-  $steps_li = $steps.find("li");
+  $stepsLi = $steps.find("li");
 
-  $($steps_li[0]).addClass("selected");
+  // Highlight the first selected step
+  stepLi(0).addClass("selected");
 
-  $step_match = $("#step_match");
-  $step_match_static = $("#step_match_static");
-  $explanation_step = $("#explanation_step");
-  $explanation_step_builder = $("#explanation_step_builder");
+  // Focus the text input to write the match
+  $stepMatch.focus();
 
-  $step_match.focus();
-  $step_match.live("keyup", function(ev) {
-    var text = $step_match.val();
-    if (text == lastText && ev.keyCode != 13) {
+  // When pressing a key in the step match input, filter the steps
+  $stepMatch.keyup(function(ev) {
+    if (justBuiltAStep) {
+      justBuiltAStep = false;
       return;
     }
-    lastText = text;
 
+    text = $stepMatch.val();
+
+    // If the text didn't change and it's not enter, do nothing
+    if (text == lastStepMatchText && ev.keyCode != 13)
+      return true;
+
+    // These are the arrow keys, home, end, etc. We can ignore them.
     if (ev.keyCode >= 35 && ev.keyCode <= 40) {
-      return;
+      return true;
     }
 
+    lastStepMatchText = text;
+
+    // If the user pressed enter, selected the step
     if (ev.keyCode == 13) {
-      var step = steps[liIndexes[currentSelection]];
-      var str = step[0];
-
-      if (lastAction == currentAction && currentAction != "And ") {
-        currentAction = "And ";
-        lastActionChanged = false;
-      } else {
-        lastActionChanged = true;
-      }
-      lastAction = currentAction;
-
-      buildingStep = step;
-
-      if (countForScenario(step[0]) == 0) {
-        appendToScenario();
-        searchAgain();
-      } else {
-        $explanation_step.hide();
-        $explanation_step_builder.show();
-        $step_match_static.show();
-        $step_match_static.html(currentAction + $($steps_li[liIndexes[currentSelection]]).html());
-        $step_match.hide();
-        $steps.hide();
-        $step_builder.show();
-
-        var paramCount = countForScenario(step[0]);
-
-        var html = '';
-        for(var i = 1; i < 1 + paramCount; i++) {
-          html += "<p>";
-          html += '<strong><label for="p"' + i + '">' + step[i] + "</label></strong>:<br/>";
-          html += '<input type="text" id="p' + i + '" class="complete"> &nbsp; &nbsp;';
-          html += "</p>";
-        }
-        $step_builder.html(html);
-
-        $("#p1").focus();
-      }
+      prepareBuildStep();
+      return false;
     }
 
-    $($steps_li[liIndexes[currentSelection]]).removeClass("selected");
+    // Unselect the current step
+    currentLi().removeClass("selected");
 
-    var foundMatch = false;
+    // See if we the text starts with an action and remove it
+    foundMatch = false;
     if (text.match(/^when /i)) {
       text = text.substring(5);
       currentAction = "When ";
@@ -279,52 +390,38 @@ $(function() {
       currentAction = "And ";
     }
 
+    // Do the filtering
     text = eval("/^" + text + "/i");
-    liIndexes = [];
+    liIndices = [];
 
-    var foundFirst = false;
+    selectedStepIndex = -1;
     for(var i = 0; i < steps.length; i++) {
-      var step = steps[i];
-      var $step_li = $($steps_li[i]);
-      if (step[step.length - 1].toString().match(text)) {
-        $step_li.show();
-        if (!foundFirst) {
-          $step_li.addClass("selected");
-          currentSelection = 0;
+      step = steps[i];
+      $stepLi = stepLi(i);
+      if (step.regexpReplaced.match(text)) {
+        $stepLi.show();
+        if (selectedStepIndex == -1) {
+          $stepLi.addClass("selected");
+          selectedStepIndex = 0;
         }
-        foundFirst = true;
-        liIndexes.push(i);
+        liIndices.push(i);
       } else {
-        $step_li.hide();
+        $stepLi.hide();
       }
-    }
-
-    if (!foundFirst) {
-      currentSelection = -1;
     }
   });
 
-  $step_match.live("keydown", function(ev) {
-    if (currentSelection == -1) {
-      return;
-    }
+  // When pressing up or down on the stepMatch input,
+  // change the selected step
+  $stepMatch.keydown(function(ev) {
+    if (selectedStepIndex == -1) return;
 
-    // Up
-    if (ev.keyCode == 38 && currentSelection > 0) {
-      $($steps_li[liIndexes[currentSelection]]).removeClass("selected");
-      currentSelection--;
-      current = $($steps_li[liIndexes[currentSelection]]);
-      current.addClass("selected");
-      $steps.scrollTop(0);
-      $steps.scrollTop(current.position().top - 90);
-      return false;
-    }
-
-    // Down
-    if (ev.keyCode == 40 && currentSelection < liIndexes.length - 1) {
-      $($steps_li[liIndexes[currentSelection]]).removeClass("selected");
-      currentSelection++;
-      current = $($steps_li[liIndexes[currentSelection]]);
+    // Up or Down
+    if ((ev.keyCode == 38 && selectedStepIndex > 0) ||
+        (ev.keyCode == 40 && selectedStepIndex < liIndices.length - 1)) {
+      currentLi().removeClass("selected");
+      selectedStepIndex += ev.keyCode == 38 ? -1 : 1;
+      current = currentLi();
       current.addClass("selected");
       $steps.scrollTop(0);
       $steps.scrollTop(current.position().top - 90);
@@ -334,24 +431,42 @@ $(function() {
     return true;
   });
 
+  // When hovering an <li>, highglight it
+  $stepsLi.mouseenter(function(ev) {
+    currentLi().removeClass("selected");
+    selectedStepIndex = $stepsLi.index(this);
+    currentLi().addClass("selected");
+  });
+
+  // When clicking an <li>, build it
+  $stepsLi.click(function(ev) {
+    selectedStepIndex = $stepsLi.index(this);
+    prepareBuildStep();
+  });
+
+  // When pressing enter or tab in the step building inputs, go
+  // to the next one or write to scenario if it's the last one
   $(".complete").live("keyup", function(ev) {
+    // When pressing ESC, go back to search
     if (ev.keyCode == 27) {
       searchAgain();
       return false;
     }
 
-    if (ev.keyCode == 9 || ev.keyCode == 13) {
+    // Enter
+    if (ev.keyCode == 13) {
       $this = $(this);
       value = $this.val();
-      if (value == '') {
-        return;
-      }
+      if (value == '')
+        return false;
+
       id = $this.attr("id").substring(1);
       id = parseInt(id) + 1;
       $next = $("#p" + id);
       if ($next.length > 0) {
         $next.focus();
       } else {
+        justBuiltAStep = true;
         appendToScenario();
         searchAgain();
       }
@@ -360,46 +475,54 @@ $(function() {
     return true;
   });
 
+  // Clear the scenario
   $("#clear").click(function() {
     $scenario.html("");
     searchAgain();
-    firstActionChange = true;
+    firstStepInScenario = true;
   });
 });
 </script>
 <style>
-body { font-family: "Helvetica Neue",Arial,Helvetica,sans-serif; font-size:85%; }
-.param { font-weight: bold; color: blue;}
-.selected { background-color: #CCE; padding:4px;}
+body { font-family: "Helvetica Neue",Arial,Helvetica,sans-serif; font-size:85%; height:80% }
+table { font-size:100%; }
 ul { list-style-type:none; margin:0px; padding:0px;}
-li { padding: 4px;}
-#logo { font-weight:bold; color: green;}
-#steps, #step_builder { height: 200px; position: relative; overflow: auto; margin: 10px;}
-#scenario { font-size: 105%; padding-left: 20px;}
+li { padding: 4px; cursor: pointer;}
+h3 { padding: 0px; margin:0px; }
+#steps, #stepBuilder { height: 40%; position: relative; overflow: auto; border: 1px solid black; background-color: #DFDFEF; margin-top: 20px;}
+#scenarioContainer { height: 40%; margin-top:20px; border: 1px solid black; padding:10px; background-color: #EFEF99; }
+#scenario { font-size: 105%; padding-left: 20px; margin-top: 10px;}
+#container { min-height: 100%; position: relative; }
+#separator { height: 5%; }
+#logo { position: absolute; bottom: 0px; right: 4px; height: 20px; width: 100%; text-align: right; font-weight:bold;}
+.param { font-weight: bold; color: blue;}
+.selected { background-color: #BBE; padding:4px;}
+.complete { width:100%; }
 </style>
 </head>
 <body>
+<div id="container">
+  <h3 id="explanationStep">
+  Write a step as you would write it in cucumber (including given, when, then, and) and press enter when you have selected one.
+  </h3>
+  <h3 id="explanationStepBuilder" style="display:none">
+  Now fill in the fields for the step (press tab or enter to change between fields, or escape to search another step).
+  </h3>
+  <input type="text" id="stepMatch" size="100" />
+  <ul id="steps">
+  </ul>
+  <div id="stepBuilder" style="display:none">
+  </div>
+  <div id="scenarioContainer">
+    <h3>Scenario <a href="javascript:void(0)" id="clear" style="margin-left:10px">clear</a></h3>
+    <div id="scenario">
+    </div>
+  </div>
+</div>
+<div id="separator">
+</div>
 <div id="logo">
 cukecooker :)
-</div>
-<div id="console">
-<h3 id="explanation_step">
-Write a step as you would write it in cucumber (including given, when, then, and) and press enter when you have selected one.
-</h3>
-<h3 id="explanation_step_builder" style="display:none">
-Now fill in the fields for the step (press tab or enter to change between fields, or cancel to search another step).
-</h3>
-<input type="text" id="step_match" size="100" />
-<div id="step_match_static" class="selected" style="display:none"></div>
-</div>
-<ul id="steps">
-</ul>
-<div id="step_builder" style="display:none">
-</div>
-<div>
-  <h3>Scenario (<a href="javascript:void(0)" id="clear">Clear</a>)</h3>
-  <div id="scenario">
-  </div>
 </div>
 </body>
 </html>
