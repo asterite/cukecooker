@@ -1,6 +1,6 @@
 spec = Gem::Specification.new do |s|
   s.name = "cukecooker"
-  s.version = "0.1"
+  s.version = "0.2"
   s.author = "Ary Borenszweig"
   s.email = "aborenszweig@manas.com.ar"
   s.homepage = "https://github.com/asterite/cukecooker"

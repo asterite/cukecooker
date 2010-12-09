@@ -484,12 +484,17 @@ $(function() {
   $stepsLi.mouseenter(function(ev) {
     currentLi().removeClass("selected");
     selectedStepIndex = $stepsLi.index(this);
+    for(var i = 0; i < liIndices.length; i++) {
+      if (selectedStepIndex == liIndices[i]) {
+        selectedStepIndex = i;
+        break;
+      }
+    }
     currentLi().addClass("selected");
   });
 
   // When clicking an <li>, build it
   $stepsLi.click(function(ev) {
-    selectedStepIndex = $stepsLi.index(this);
     prepareBuildStep();
   });
 
